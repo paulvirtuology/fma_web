@@ -1,5 +1,5 @@
-import React from 'react';
-import { Plus, Trash2 } from 'lucide-react';
+import React, { useState } from 'react';
+import { Plus, Trash2, ChevronDown, ChevronRight } from 'lucide-react';
 import { Page } from '../../types';
 import TiptapEditor from './TiptapEditor';
 
@@ -16,6 +16,11 @@ const PagesTab: React.FC<PagesTabProps> = ({
     updatePage,
     deletePage
 }) => {
+    const [expandedId, setExpandedId] = useState<string | null>(null);
+
+    const toggleExpand = (id: string) => {
+        setExpandedId(expandedId === id ? null : id);
+    };
     return (
         <div className="space-y-6">
             <div className="flex justify-between items-center">
@@ -32,31 +37,50 @@ const PagesTab: React.FC<PagesTabProps> = ({
             </div>
             <div className="space-y-4">
                 {pages.map((page) => (
-                    <div key={page.id} className="bg-slate-800 p-6 rounded-2xl border border-slate-700">
-                        <div className="flex justify-between items-start mb-4">
-                            <div>
-                                <h3 className="text-lg font-bold">{page.title}</h3>
-                                <p className="text-sm text-slate-400">/{page.slug}</p>
+                    <div key={page.id} className="bg-slate-800 rounded-2xl border border-slate-700 overflow-hidden">
+                        <div
+                            className="p-6 flex justify-between items-center cursor-pointer hover:bg-slate-700/30 transition-colors"
+                            onClick={() => toggleExpand(page.id)}
+                        >
+                            <div className="flex items-center gap-4">
+                                <div className="text-slate-500">
+                                    {expandedId === page.id ? <ChevronDown size={20} /> : <ChevronRight size={20} />}
+                                </div>
+                                <div>
+                                    <h3 className="text-lg font-bold">{page.title}</h3>
+                                    <p className="text-sm text-slate-400">/{page.slug}</p>
+                                </div>
                             </div>
-                            <div className="flex gap-2">
-                                <label className="flex items-center gap-2">
+                            <div className="flex gap-4 items-center" onClick={e => e.stopPropagation()}>
+                                <label className="flex items-center gap-2 cursor-pointer">
                                     <input
                                         type="checkbox"
+                                        className="w-4 h-4 rounded border-slate-600 bg-slate-700 text-blue-600 focus:ring-blue-500"
                                         checked={page.is_published}
                                         onChange={e => updatePage(page.id, { is_published: e.target.checked })}
                                     />
-                                    <span className="text-sm">Publié</span>
+                                    <span className="text-sm font-medium">Publié</span>
                                 </label>
-                                <button onClick={() => deletePage(page.id)} className="p-2 hover:bg-red-500/20 rounded-lg text-red-400">
+                                <button
+                                    onClick={() => deletePage(page.id)}
+                                    className="p-2 hover:bg-red-500/20 rounded-lg text-red-400 transition-colors"
+                                >
                                     <Trash2 size={16} />
                                 </button>
                             </div>
                         </div>
-                        <TiptapEditor
-                            value={page.content || ''}
-                            onChange={val => updatePage(page.id, { content: val })}
-                            placeholder="Contenu de la page..."
-                        />
+
+                        {expandedId === page.id && (
+                            <div className="p-6 pt-0 border-t border-slate-700 animate-in slide-in-from-top-2 duration-200">
+                                <div className="pt-6">
+                                    <TiptapEditor
+                                        value={page.content || ''}
+                                        onChange={val => updatePage(page.id, { content: val })}
+                                        placeholder="Contenu de la page..."
+                                    />
+                                </div>
+                            </div>
+                        )}
                     </div>
                 ))}
                 {pages.length === 0 && (

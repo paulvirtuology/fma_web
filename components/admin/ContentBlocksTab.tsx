@@ -1,5 +1,5 @@
-import { Plus, Trash2, ArrowUp, ArrowDown } from 'lucide-react';
-import React from 'react';
+import { Plus, Trash2, ArrowUp, ArrowDown, ChevronDown, ChevronRight } from 'lucide-react';
+import React, { useState } from 'react';
 import { ContentBlock } from '../../types';
 import TiptapEditor from './TiptapEditor';
 
@@ -18,6 +18,11 @@ const ContentBlocksTab: React.FC<ContentBlocksTabProps> = ({
     deleteContentBlock,
     moveBlock
 }) => {
+    const [expandedId, setExpandedId] = useState<string | null>(null);
+
+    const toggleExpand = (id: string) => {
+        setExpandedId(expandedId === id ? null : id);
+    };
     return (
         <div className="space-y-6">
             <div className="flex justify-between items-center">
@@ -31,13 +36,21 @@ const ContentBlocksTab: React.FC<ContentBlocksTabProps> = ({
             </div>
             <div className="space-y-4">
                 {contentBlocks.map((block) => (
-                    <div key={block.id} className="bg-slate-800 p-6 rounded-2xl border border-slate-700">
-                        <div className="flex justify-between items-start mb-4">
-                            <div>
-                                <h3 className="text-lg font-bold">{block.key}</h3>
-                                <p className="text-sm text-slate-400">{block.page} / {block.section}</p>
+                    <div key={block.id} className="bg-slate-800 rounded-2xl border border-slate-700 overflow-hidden">
+                        <div
+                            className="p-6 flex justify-between items-center cursor-pointer hover:bg-slate-700/30 transition-colors"
+                            onClick={() => toggleExpand(block.id)}
+                        >
+                            <div className="flex items-center gap-4">
+                                <div className="text-slate-500">
+                                    {expandedId === block.id ? <ChevronDown size={20} /> : <ChevronRight size={20} />}
+                                </div>
+                                <div>
+                                    <h3 className="text-lg font-bold">{block.key}</h3>
+                                    <p className="text-sm text-slate-400">{block.page} / {block.section}</p>
+                                </div>
                             </div>
-                            <div className="flex gap-2">
+                            <div className="flex gap-2" onClick={e => e.stopPropagation()}>
                                 <button
                                     onClick={() => moveBlock(block.id, 'up')}
                                     className="p-2 hover:bg-slate-700 rounded-lg text-slate-400"
@@ -57,27 +70,41 @@ const ContentBlocksTab: React.FC<ContentBlocksTabProps> = ({
                                 </button>
                             </div>
                         </div>
-                        <div className="space-y-3">
-                            <input
-                                type="text"
-                                placeholder="Titre"
-                                className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white"
-                                value={block.title || ''}
-                                onChange={e => updateContentBlock(block.id, { title: e.target.value })}
-                            />
-                            <TiptapEditor
-                                value={block.content || ''}
-                                onChange={val => updateContentBlock(block.id, { content: val })}
-                                placeholder="Contenu du bloc..."
-                            />
-                            <input
-                                type="text"
-                                placeholder="URL Image"
-                                className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white"
-                                value={block.image || ''}
-                                onChange={e => updateContentBlock(block.id, { image: e.target.value })}
-                            />
-                        </div>
+
+                        {expandedId === block.id && (
+                            <div className="p-6 pt-0 border-t border-slate-700 animate-in slide-in-from-top-2 duration-200">
+                                <div className="pt-6 space-y-4">
+                                    <div>
+                                        <label className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-2 block">Titre du bloc</label>
+                                        <input
+                                            type="text"
+                                            placeholder="Titre"
+                                            className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-white focus:ring-2 focus:ring-blue-500 outline-none"
+                                            value={block.title || ''}
+                                            onChange={e => updateContentBlock(block.id, { title: e.target.value })}
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-2 block">Contenu</label>
+                                        <TiptapEditor
+                                            value={block.content || ''}
+                                            onChange={val => updateContentBlock(block.id, { content: val })}
+                                            placeholder="Contenu du bloc..."
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-2 block">URL de l'image (optionnel)</label>
+                                        <input
+                                            type="text"
+                                            placeholder="URL Image"
+                                            className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-white focus:ring-2 focus:ring-blue-500 outline-none"
+                                            value={block.image || ''}
+                                            onChange={e => updateContentBlock(block.id, { image: e.target.value })}
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+                        )}
                     </div>
                 ))}
                 {contentBlocks.length === 0 && (
