@@ -1,0 +1,153 @@
+/* Global Rich Text & Base Styling */
+
+:root {
+    --primary: #2563eb;
+    --primary-hover: #1d4ed8;
+    --bg-admin: #0f172a;
+}
+
+/* Base Prose Styling for Tiptap & User Content */
+.prose {
+    color: #334155;
+    line-height: 1.8;
+}
+
+.prose h1 {
+    font-size: 2.25rem;
+    font-weight: 800;
+    color: #1e3a8a;
+    margin-top: 2rem;
+    margin-bottom: 1rem;
+    font-family: 'Playfair Display', serif;
+}
+
+.prose h2 {
+    font-size: 1.875rem;
+    font-weight: 700;
+    color: #1e3a8a;
+    margin-top: 1.5rem;
+    margin-bottom: 0.75rem;
+    font-family: 'Playfair Display', serif;
+}
+
+.prose h3 {
+    font-size: 1.5rem;
+    font-weight: 600;
+    color: #1e3a8a;
+    margin-top: 1.25rem;
+    margin-bottom: 0.5rem;
+}
+
+.prose p {
+    margin-top: 1.25rem;
+    margin-bottom: 1.25rem;
+}
+
+.prose ul {
+    list-style-type: disc;
+    padding-left: 1.5rem;
+    margin-top: 1.25rem;
+    margin-bottom: 1.25rem;
+}
+
+.prose ol {
+    list-style-type: decimal;
+    padding-left: 1.5rem;
+    margin-top: 1.25rem;
+    margin-bottom: 1.25rem;
+}
+
+.prose li {
+    margin-top: 0.5rem;
+    margin-bottom: 0.5rem;
+}
+
+.prose a {
+    color: #2563eb;
+    text-decoration: underline;
+    font-weight: 500;
+}
+
+.prose a:hover {
+    color: #1d4ed8;
+}
+
+.prose blockquote {
+    border-left: 4px solid #bfdbfe;
+    padding-left: 1rem;
+    font-style: italic;
+    color: #64748b;
+    margin: 1.5rem 0;
+}
+
+.prose img {
+    max-width: 100%;
+    height: auto;
+    border-radius: 1rem;
+    margin: 2rem 0;
+}
+
+/* Dark Mode Prose */
+.prose-invert {
+    color: #cbd5e1;
+    /* slate-300 */
+}
+
+.prose-invert h1,
+.prose-invert h2,
+.prose-invert h3 {
+    color: #f1f5f9;
+    /* slate-100 */
+}
+
+.prose-invert a {
+    color: #60a5fa;
+    /* blue-400 */
+}
+
+.prose-invert blockquote {
+    border-left-color: #334155;
+    color: #94a3b8;
+}
+
+/* Tiptap Editor Specific Styles (Inside Admin) */
+.tiptap-editor {
+    min-height: 300px;
+    outline: none;
+}
+
+.tiptap p.is-editor-empty:first-child::before {
+    content: attr(data-placeholder);
+    float: left;
+    color: #64748b;
+    pointer-events: none;
+    height: 0;
+}
+
+.ProseMirror {
+    padding: 1.5rem;
+    min-height: 300px;
+}
+
+.ProseMirror:focus {
+    outline: none;
+}
+
+/* Scrollbar styling for a premium feel */
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.2);
+}

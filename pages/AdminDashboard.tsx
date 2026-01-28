@@ -1,31 +1,46 @@
-
 import React, { useState, useEffect } from 'react';
-import { 
-  LayoutDashboard, 
-  FileText, 
-  Image as ImageIcon, 
-  LogOut, 
-  Plus, 
-  TrendingUp, 
-  Users, 
-  Globe, 
-  Sparkles,
+import {
+  X,
   Loader2,
-  Trash2,
-  Check,
   Save,
-  X
+  Check,
+  Sparkles,
+  Globe
 } from 'lucide-react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { generateNewsDraft, translateToMalagasy } from '../services/geminiService';
 import { dataService } from '../services/dataService';
-import { NewsArticle } from '../types';
+import { authService } from '../services/authService';
+import { useAuth } from '../contexts/AuthContext';
+import { generateNewsDraft, translateToMalagasy } from '../services/geminiService';
+import { NewsArticle, ContentBlock, Page, SiteSetting, User, UserRole } from '../types';
+
+import Sidebar, { AdminTab } from '../components/admin/Sidebar';
+import OverviewTab from '../components/admin/OverviewTab';
+import ArticlesTab from '../components/admin/ArticlesTab';
+import PagesTab from '../components/admin/PagesTab';
+import ContentBlocksTab from '../components/admin/ContentBlocksTab';
+import UsersTab from '../components/admin/UsersTab';
+import SettingsTab from '../components/admin/SettingsTab';
+import AIAssistantTab from '../components/admin/AIAssistantTab';
+import MediaLibrary from '../components/admin/MediaLibrary';
+import { mediaService } from '../services/mediaService';
 
 const AdminDashboard: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'overview' | 'articles' | 'ai-assistant'>('overview');
+  const { user: currentUser, isAdmin } = useAuth();
+  const [activeTab, setActiveTab] = useState<AdminTab>('overview');
   const [articles, setArticles] = useState<NewsArticle[]>([]);
+  const [contentBlocks, setContentBlocks] = useState<ContentBlock[]>([]);
+  const [pages, setPages] = useState<Page[]>([]);
+  const [settings, setSettings] = useState<SiteSetting[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  
+
+  // User management state
+  const [showUserForm, setShowUserForm] = useState(false);
+  const [editingUser, setEditingUser] = useState<User | null>(null);
+  const [newUser, setNewUser] = useState({ email: '', password: '', role: 'editor' as UserRole, full_name: '' });
+  const [showPasswordForm, setShowPasswordForm] = useState(false);
+  const [passwordData, setPasswordData] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' });
+
   // AI State
   const [aiTopic, setAiTopic] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
@@ -34,6 +49,10 @@ const AdminDashboard: React.FC = () => {
 
   // Form State for new article
   const [showNewForm, setShowNewForm] = useState(false);
+  const [showCreatePageModal, setShowCreatePageModal] = useState(false);
+  const [showCreateBlockModal, setShowCreateBlockModal] = useState(false);
+  const [newPageData, setNewPageData] = useState({ title: '', slug: '' });
+  const [newBlockData, setNewBlockData] = useState({ key: '', page: 'home', section: 'main' });
   const [newArticle, setNewArticle] = useState({
     title: '',
     content: '',
@@ -41,6 +60,7 @@ const AdminDashboard: React.FC = () => {
     image: '',
     date: new Date().toISOString().split('T')[0]
   });
+  const [editingArticle, setEditingArticle] = useState<NewsArticle | null>(null);
 
   useEffect(() => {
     loadData();
@@ -49,8 +69,21 @@ const AdminDashboard: React.FC = () => {
   const loadData = async () => {
     setIsLoading(true);
     try {
-      const data = await dataService.getArticles();
-      setArticles(data);
+      const promises: Promise<any>[] = [
+        dataService.getArticles(),
+        dataService.getContentBlocks(),
+        dataService.getPages(),
+        dataService.getSiteSettings()
+      ];
+      if (isAdmin) {
+        promises.push(authService.getAllUsers());
+      }
+      const [articlesData, blocksData, pagesData, settingsData, usersData] = await Promise.all(promises);
+      setArticles(articlesData);
+      setContentBlocks(blocksData);
+      setPages(pagesData);
+      setSettings(settingsData);
+      if (usersData) setUsers(usersData);
     } catch (e) {
       console.error(e);
     } finally {
@@ -78,8 +111,12 @@ const AdminDashboard: React.FC = () => {
     if (!e.target.files || e.target.files.length === 0) return;
     try {
       setIsLoading(true);
-      const url = await dataService.uploadImage(e.target.files[0]);
-      setNewArticle(prev => ({ ...prev, image: url }));
+      const url = await mediaService.uploadOptimized(e.target.files[0]);
+      if (editingArticle) {
+        setEditingArticle(prev => prev ? { ...prev, image: url } : null);
+      } else {
+        setNewArticle(prev => ({ ...prev, image: url }));
+      }
     } catch (err) {
       alert("Erreur lors de l'upload");
     } finally {
@@ -117,232 +154,391 @@ const AdminDashboard: React.FC = () => {
     }
   };
 
+  const updateArticle = async (id: string, updates: Partial<NewsArticle>) => {
+    // Optimistic update
+    setArticles(prev => prev.map(a => a.id === id ? { ...a, ...updates } : a));
+
+    const article = articles.find(a => a.id === id);
+    if (!article) return;
+    try {
+      await dataService.createArticle({ ...article, ...updates }); // createArticle handles upsert
+    } catch (err) {
+      console.error(err);
+      loadData();
+    }
+  };
+
+  const updateContentBlock = async (id: string, updates: Partial<ContentBlock>) => {
+    // Optimistic update
+    setContentBlocks(prev => prev.map(b => b.id === id ? { ...b, ...updates } : b));
+
+    const block = contentBlocks.find(b => b.id === id);
+    if (!block) return;
+    try {
+      await dataService.upsertContentBlock({ ...block, ...updates });
+    } catch (err) {
+      console.error(err);
+      loadData(); // Revert on error
+    }
+  };
+
+  const deleteContentBlock = async (id: string) => {
+    if (!confirm("Supprimer ce bloc ?")) return;
+    try {
+      await dataService.deleteContentBlock(id);
+      loadData();
+    } catch (err) {
+      alert("Erreur lors de la suppression");
+    }
+  };
+
+  const moveBlock = async (id: string, direction: 'up' | 'down') => {
+    const index = contentBlocks.findIndex(b => b.id === id);
+    if (index === -1) return;
+    if (direction === 'up' && index === 0) return;
+    if (direction === 'down' && index === contentBlocks.length - 1) return;
+
+    const targetIndex = direction === 'up' ? index - 1 : index + 1;
+    const blockA = contentBlocks[index];
+    const blockB = contentBlocks[targetIndex];
+
+    try {
+      await Promise.all([
+        dataService.upsertContentBlock({ ...blockA, order_index: blockB.order_index }),
+        dataService.upsertContentBlock({ ...blockB, order_index: blockA.order_index })
+      ]);
+      loadData();
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const updatePage = async (id: string, updates: Partial<Page>) => {
+    // Optimistic update
+    setPages(prev => prev.map(p => p.id === id ? { ...p, ...updates } : p));
+
+    const page = pages.find(p => p.id === id);
+    if (!page) return;
+    try {
+      await dataService.upsertPage({ ...page, ...updates });
+    } catch (err) {
+      console.error(err);
+      loadData(); // Revert on error
+    }
+  };
+
+  const deletePage = async (id: string) => {
+    if (!confirm("Supprimer cette page ?")) return;
+    try {
+      await dataService.deletePage(id);
+      loadData();
+    } catch (err) {
+      alert("Erreur lors de la suppression");
+    }
+  };
+
+  const handleCreateUser = async () => {
+    try {
+      setIsLoading(true);
+      await authService.createUser(newUser.email, newUser.password, newUser.role, newUser.full_name);
+      setShowUserForm(false);
+      setNewUser({ email: '', password: '', role: 'editor', full_name: '' });
+      loadData();
+    } catch (err: any) {
+      alert(err.message || "Erreur lors de la création");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleUpdateUser = async (userId: string, updates: { role?: UserRole; full_name?: string; email?: string }) => {
+    try {
+      await authService.updateUser(userId, updates);
+      loadData();
+    } catch (err: any) {
+      alert(err.message || "Erreur lors de la modification");
+    }
+  };
+
+  const handleDeleteUser = async (userId: string) => {
+    if (!confirm("Supprimer cet utilisateur ?")) return;
+    try {
+      await authService.deleteUser(userId);
+      loadData();
+    } catch (err: any) {
+      alert(err.message || "Erreur lors de la suppression");
+    }
+  };
+
+  const handleChangePassword = async () => {
+    if (passwordData.newPassword !== passwordData.confirmPassword) {
+      alert("Les mots de passe ne correspondent pas");
+      return;
+    }
+    try {
+      setIsLoading(true);
+      await authService.updatePassword(passwordData.newPassword);
+      setShowPasswordForm(false);
+      setPasswordData({ currentPassword: '', newPassword: '', confirmPassword: '' });
+      alert("Mot de passe modifié avec succès");
+    } catch (err: any) {
+      alert(err.message || "Erreur lors de la modification");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    await authService.signOut();
+    window.location.href = '/login';
+  };
+
   return (
-    <div className="flex min-h-screen bg-slate-900 text-white">
-      {/* Sidebar */}
-      <div className="w-64 border-r border-slate-800 flex flex-shrink-0 flex-col">
-        <div className="p-6 border-b border-slate-800">
-          <h2 className="text-xl font-bold italic text-blue-400">FMA Portal CMS</h2>
-        </div>
-        <nav className="flex-1 p-4 space-y-2">
-          <button 
-            onClick={() => setActiveTab('overview')}
-            className={`flex items-center w-full px-4 py-3 rounded-lg transition-colors ${activeTab === 'overview' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800 text-slate-400'}`}
-          >
-            <LayoutDashboard className="mr-3" size={20} /> Vue d'ensemble
-          </button>
-          <button 
-            onClick={() => setActiveTab('articles')}
-            className={`flex items-center w-full px-4 py-3 rounded-lg transition-colors ${activeTab === 'articles' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800 text-slate-400'}`}
-          >
-            <FileText className="mr-3" size={20} /> Articles & Pages
-          </button>
-          <button 
-            onClick={() => setActiveTab('ai-assistant')}
-            className={`flex items-center w-full px-4 py-3 rounded-lg transition-colors ${activeTab === 'ai-assistant' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800 text-slate-400'}`}
-          >
-            <Sparkles className="mr-3" size={20} /> Assistant AI
-          </button>
-        </nav>
-        <div className="p-4 border-t border-slate-800">
-          <button className="flex items-center w-full px-4 py-3 rounded-lg text-red-400 hover:bg-red-500/10 transition-colors">
-            <LogOut className="mr-3" size={20} /> Déconnexion
-          </button>
-        </div>
-      </div>
+    <div className="flex h-screen bg-slate-900 text-slate-100 overflow-hidden">
+      <Sidebar
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        isAdmin={isAdmin}
+        user={currentUser}
+        setShowPasswordForm={setShowPasswordForm}
+        handleLogout={handleLogout}
+      />
 
-      {/* Main Content */}
       <div className="flex-1 overflow-y-auto p-8">
-        {activeTab === 'overview' && (
-          <div className="space-y-8">
-            <div className="flex justify-between items-center">
-              <div>
-                <h1 className="text-3xl font-bold">Tableau de Bord</h1>
-                <p className="text-slate-400">Contrôlez le contenu de FMA Madagascar.</p>
-              </div>
-            </div>
+        {activeTab === 'overview' && <OverviewTab articles={articles} setActiveTab={setActiveTab} />}
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-              {[
-                { label: 'Articles Total', value: articles.length, change: '+2', icon: <FileText /> },
-                { label: 'Jeunes Impactés', value: '5.2k', change: '+12%', icon: <Users /> },
-                { label: 'Communautés', value: '12', change: 'Stable', icon: <Globe /> },
-                { label: 'Projets Actifs', value: '8', change: 'Stable', icon: <TrendingUp /> },
-              ].map((stat, i) => (
-                <div key={i} className="bg-slate-800 p-6 rounded-2xl border border-slate-700">
-                  <div className="flex justify-between items-start mb-4">
-                    <div className="p-2 bg-blue-500/10 text-blue-400 rounded-lg">{stat.icon}</div>
-                    <span className="text-xs font-bold text-green-400">{stat.change}</span>
-                  </div>
-                  <div className="text-2xl font-bold">{stat.value}</div>
-                  <div className="text-sm text-slate-400">{stat.label}</div>
+        {activeTab === 'articles' && (
+          <ArticlesTab
+            articles={articles}
+            showNewForm={showNewForm}
+            setShowNewForm={setShowNewForm}
+            newArticle={newArticle}
+            setNewArticle={setNewArticle}
+            handleFileUpload={handleFileUpload}
+            saveArticle={saveArticle}
+            deleteArticle={deleteArticle}
+            updateArticle={updateArticle}
+            editingArticle={editingArticle}
+            setEditingArticle={setEditingArticle}
+            isLoading={isLoading}
+          />
+        )}
+
+        {activeTab === 'content' && (
+          <ContentBlocksTab
+            contentBlocks={contentBlocks}
+            handleCreateBlock={() => setShowCreateBlockModal(true)}
+            updateContentBlock={updateContentBlock}
+            deleteContentBlock={deleteContentBlock}
+            moveBlock={moveBlock}
+          />
+        )}
+
+        {activeTab === 'pages' && (
+          <PagesTab
+            pages={pages}
+            handleCreatePage={() => setShowCreatePageModal(true)}
+            updatePage={updatePage}
+            deletePage={deletePage}
+          />
+        )}
+
+        {activeTab === 'settings' && (
+          <SettingsTab
+            settings={settings}
+            loadData={loadData}
+            upsertSiteSetting={dataService.upsertSiteSetting}
+          />
+        )}
+
+        {activeTab === 'users' && isAdmin && (
+          <UsersTab
+            users={users}
+            currentUser={currentUser}
+            showUserForm={showUserForm}
+            setShowUserForm={setShowUserForm}
+            editingUser={editingUser}
+            setEditingUser={setEditingUser}
+            newUser={newUser}
+            setNewUser={setNewUser}
+            handleCreateUser={handleCreateUser}
+            handleUpdateUser={handleUpdateUser}
+            handleDeleteUser={handleDeleteUser}
+            isLoading={isLoading}
+          />
+        )}
+
+        {activeTab === 'media' && <MediaLibrary />}
+
+        {/* Proper Creation Modals */}
+        {showCreatePageModal && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[200] p-4">
+            <div className="bg-slate-900 border border-slate-700 w-full max-w-md rounded-3xl p-8 shadow-2xl animate-in zoom-in-95 duration-200">
+              <h2 className="text-2xl font-bold mb-6">Créer une Page</h2>
+              <div className="space-y-4">
+                <div>
+                  <label className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-2 block">Titre de la page</label>
+                  <input
+                    type="text"
+                    className="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-white focus:ring-2 focus:ring-blue-500 outline-none"
+                    placeholder="ex: À propos de nous"
+                    value={newPageData.title}
+                    onChange={e => setNewPageData(p => ({ ...p, title: e.target.value }))}
+                  />
                 </div>
-              ))}
+                <div>
+                  <label className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-2 block">Slug (URL)</label>
+                  <input
+                    type="text"
+                    className="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-white focus:ring-2 focus:ring-blue-500 outline-none"
+                    placeholder="ex: about"
+                    value={newPageData.slug}
+                    onChange={e => setNewPageData(p => ({ ...p, slug: e.target.value.toLowerCase().replace(/\s+/g, '-') }))}
+                  />
+                </div>
+                <div className="flex gap-3 pt-4">
+                  <button
+                    onClick={() => setShowCreatePageModal(false)}
+                    className="flex-1 px-4 py-3 bg-slate-800 hover:bg-slate-700 rounded-xl font-bold transition-colors"
+                  >
+                    Annuler
+                  </button>
+                  <button
+                    onClick={async () => {
+                      if (!newPageData.title || !newPageData.slug) return;
+                      await dataService.upsertPage({ ...newPageData, content: '', is_published: true });
+                      setShowCreatePageModal(false);
+                      setNewPageData({ title: '', slug: '' });
+                      loadData();
+                    }}
+                    className="flex-1 px-4 py-3 bg-blue-600 hover:bg-blue-700 rounded-xl font-bold transition-colors"
+                  >
+                    Créer la Page
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         )}
 
-        {activeTab === 'articles' && (
-          <div className="space-y-6">
-            <div className="flex justify-between items-center">
-              <h1 className="text-2xl font-bold italic">Gestion des Articles</h1>
-              <button 
-                onClick={() => setShowNewForm(true)}
-                className="bg-blue-600 px-4 py-2 rounded-lg text-sm font-bold flex items-center"
-              >
-                <Plus size={16} className="mr-2" /> Nouveau
-              </button>
-            </div>
-
-            {showNewForm && (
-              <div className="bg-slate-800 p-8 rounded-2xl border border-blue-500/30 space-y-4 animate-in fade-in zoom-in-95">
-                <div className="flex justify-between items-center mb-4">
-                  <h2 className="text-xl font-bold">Nouvel Article</h2>
-                  <button onClick={() => setShowNewForm(false)}><X size={20}/></button>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <input 
-                    type="text" 
-                    placeholder="Titre de l'article"
-                    className="bg-slate-900 border border-slate-700 rounded-lg p-3"
-                    value={newArticle.title}
-                    onChange={e => setNewArticle(prev => ({ ...prev, title: e.target.value }))}
+        {showCreateBlockModal && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[200] p-4">
+            <div className="bg-slate-900 border border-slate-700 w-full max-w-md rounded-3xl p-8 shadow-2xl animate-in zoom-in-95 duration-200">
+              <h2 className="text-2xl font-bold mb-6">Nouveau Bloc de Contenu</h2>
+              <div className="space-y-4">
+                <div>
+                  <label className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-2 block">Clé unique</label>
+                  <input
+                    type="text"
+                    className="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-white focus:ring-2 focus:ring-blue-500 outline-none"
+                    placeholder="ex: hero_intro"
+                    value={newBlockData.key}
+                    onChange={e => setNewBlockData(p => ({ ...p, key: e.target.value }))}
                   />
-                  <select 
-                    className="bg-slate-900 border border-slate-700 rounded-lg p-3"
-                    value={newArticle.category}
-                    onChange={e => setNewArticle(prev => ({ ...prev, category: e.target.value }))}
-                  >
-                    <option>Événement</option>
-                    <option>Mission</option>
-                    <option>Spiritualité</option>
-                  </select>
                 </div>
-                <textarea 
-                  placeholder="Contenu..."
-                  rows={6}
-                  className="w-full bg-slate-900 border border-slate-700 rounded-lg p-3"
-                  value={newArticle.content}
-                  onChange={e => setNewArticle(prev => ({ ...prev, content: e.target.value }))}
-                />
-                <div className="flex items-center gap-4">
-                  <label className="flex-1 cursor-pointer bg-slate-700 p-3 rounded-lg border border-dashed border-slate-500 text-center hover:bg-slate-600 transition-colors">
-                    <input type="file" className="hidden" onChange={handleFileUpload} accept="image/*" />
-                    {newArticle.image ? 'Image chargée ✓' : 'Uploader une image'}
-                  </label>
-                  <button 
-                    onClick={saveArticle}
-                    disabled={isLoading}
-                    className="bg-green-600 px-6 py-3 rounded-lg font-bold flex items-center disabled:opacity-50"
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-2 block">Page</label>
+                    <input
+                      type="text"
+                      className="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-white focus:ring-2 focus:ring-blue-500 outline-none"
+                      placeholder="home"
+                      value={newBlockData.page}
+                      onChange={e => setNewBlockData(p => ({ ...p, page: e.target.value }))}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-2 block">Section</label>
+                    <input
+                      type="text"
+                      className="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-white focus:ring-2 focus:ring-blue-500 outline-none"
+                      placeholder="main"
+                      value={newBlockData.section}
+                      onChange={e => setNewBlockData(p => ({ ...p, section: e.target.value }))}
+                    />
+                  </div>
+                </div>
+                <div className="flex gap-3 pt-4">
+                  <button
+                    onClick={() => setShowCreateBlockModal(false)}
+                    className="flex-1 px-4 py-3 bg-slate-800 hover:bg-slate-700 rounded-xl font-bold transition-colors"
                   >
-                    {isLoading ? <Loader2 className="animate-spin mr-2"/> : <Save className="mr-2"/>}
-                    Publier
+                    Annuler
+                  </button>
+                  <button
+                    onClick={async () => {
+                      if (!newBlockData.key) return;
+                      await dataService.upsertContentBlock({ ...newBlockData, order_index: 0 });
+                      setShowCreateBlockModal(false);
+                      setNewBlockData({ key: '', page: 'home', section: 'main' });
+                      loadData();
+                    }}
+                    className="flex-1 px-4 py-3 bg-blue-600 hover:bg-blue-700 rounded-xl font-bold transition-colors"
+                  >
+                    Ajouter le Bloc
                   </button>
                 </div>
               </div>
-            )}
-            
-            <div className="bg-slate-800 rounded-2xl border border-slate-700 overflow-hidden">
-              <table className="w-full text-left">
-                <thead className="bg-slate-700/50 text-slate-400 text-xs uppercase tracking-wider">
-                  <tr>
-                    <th className="px-6 py-4">Titre</th>
-                    <th className="px-6 py-4">Catégorie</th>
-                    <th className="px-6 py-4">Date</th>
-                    <th className="px-6 py-4 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-700">
-                  {articles.map((art) => (
-                    <tr key={art.id} className="hover:bg-slate-700/50 transition-colors">
-                      <td className="px-6 py-4 font-medium">{art.title}</td>
-                      <td className="px-6 py-4">
-                        <span className="px-2 py-1 rounded-full text-[10px] font-bold bg-blue-500/20 text-blue-400">
-                          {art.category}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 text-sm text-slate-400">{art.date}</td>
-                      <td className="px-6 py-4 text-right flex justify-end gap-2">
-                        <button onClick={() => deleteArticle(art.id)} className="p-2 hover:bg-red-500/20 rounded-lg text-red-400">
-                          <Trash2 size={16} />
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                  {articles.length === 0 && !isLoading && (
-                    <tr><td colSpan={4} className="p-12 text-center text-slate-500">Aucun article trouvé.</td></tr>
-                  )}
-                </tbody>
-              </table>
             </div>
           </div>
         )}
 
         {activeTab === 'ai-assistant' && (
-          <div className="max-w-4xl mx-auto space-y-8">
-            <div className="bg-blue-600/10 border border-blue-500/20 p-8 rounded-3xl">
-              <div className="flex items-center mb-6">
-                <Sparkles className="text-blue-400 mr-3" size={24} />
-                <h1 className="text-2xl font-bold">Assistant de Rédaction Intelligent</h1>
+          <AIAssistantTab
+            aiTopic={aiTopic}
+            setAiTopic={setAiTopic}
+            isGenerating={isGenerating}
+            handleGenerate={handleGenerate}
+            generatedContent={generatedContent}
+            setGeneratedContent={setGeneratedContent}
+            isTranslating={isTranslating}
+            handleTranslate={handleTranslate}
+            onUseContent={(content) => {
+              setNewArticle(prev => ({ ...prev, content }));
+              setActiveTab('articles');
+              setShowNewForm(true);
+            }}
+          />
+        )}
+
+        {showPasswordForm && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+            <div className="bg-slate-800 p-8 rounded-2xl border border-slate-700 w-full max-w-md space-y-4">
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-xl font-bold">Changer le mot de passe</h2>
+                <button onClick={() => setShowPasswordForm(false)}><X size={20} /></button>
               </div>
-              <p className="text-slate-400 mb-6">
-                Utilisez l'intelligence artificielle pour générer des brouillons d'articles ou traduire vos textes en Malagasy.
-              </p>
-              
-              <div className="space-y-4">
-                <label className="block text-sm font-bold text-slate-300">Sujet de l'article</label>
-                <div className="flex gap-4">
-                  <input 
-                    type="text" 
-                    value={aiTopic}
-                    onChange={(e) => setAiTopic(e.target.value)}
-                    placeholder="Ex: Une journée porte ouverte à l'école de Betafo..."
-                    className="flex-1 bg-slate-800 border border-slate-700 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                  <button 
-                    onClick={handleGenerate}
-                    disabled={isGenerating || !aiTopic}
-                    className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white px-6 py-3 rounded-xl font-bold flex items-center"
-                  >
-                    {isGenerating ? <Loader2 className="animate-spin mr-2" /> : <Sparkles className="mr-2" />}
-                    Générer
-                  </button>
-                </div>
+              <input
+                type="password"
+                placeholder="Nouveau mot de passe"
+                className="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-white"
+                value={passwordData.newPassword}
+                onChange={e => setPasswordData({ ...passwordData, newPassword: e.target.value })}
+              />
+              <input
+                type="password"
+                placeholder="Confirmer le mot de passe"
+                className="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-white"
+                value={passwordData.confirmPassword}
+                onChange={e => setPasswordData({ ...passwordData, confirmPassword: e.target.value })}
+              />
+              <div className="flex justify-end gap-2">
+                <button
+                  onClick={() => setShowPasswordForm(false)}
+                  className="px-4 py-2 border border-slate-700 rounded-lg hover:bg-slate-700"
+                >
+                  Annuler
+                </button>
+                <button
+                  onClick={handleChangePassword}
+                  disabled={isLoading}
+                  className="bg-green-600 px-6 py-3 rounded-lg font-bold flex items-center disabled:opacity-50"
+                >
+                  {isLoading ? <Loader2 className="animate-spin mr-2" /> : <Save className="mr-2" />}
+                  Modifier
+                </button>
               </div>
             </div>
-
-            {generatedContent && (
-              <div className="bg-slate-800 border border-slate-700 rounded-3xl p-8 space-y-6">
-                <div className="flex justify-between items-center">
-                  <h3 className="text-lg font-bold">Contenu Généré</h3>
-                  <div className="flex gap-2">
-                    <button 
-                      onClick={handleTranslate}
-                      disabled={isTranslating}
-                      className="bg-slate-700 hover:bg-slate-600 px-4 py-2 rounded-lg text-sm font-bold flex items-center"
-                    >
-                      {isTranslating ? <Loader2 className="animate-spin mr-2" size={16} /> : <Globe className="mr-2" size={16} />}
-                      Traduire en Malagasy
-                    </button>
-                    <button 
-                      onClick={() => {
-                        setNewArticle(prev => ({ ...prev, content: generatedContent }));
-                        setActiveTab('articles');
-                        setShowNewForm(true);
-                      }}
-                      className="bg-green-600 hover:bg-green-700 px-4 py-2 rounded-lg text-sm font-bold flex items-center"
-                    >
-                      <Check className="mr-2" size={16} /> Utiliser ce texte
-                    </button>
-                  </div>
-                </div>
-                <textarea 
-                  className="w-full h-96 bg-slate-900 border border-slate-700 rounded-xl p-6 text-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 leading-relaxed font-serif text-lg"
-                  value={generatedContent}
-                  onChange={(e) => setGeneratedContent(e.target.value)}
-                />
-              </div>
-            )}
           </div>
         )}
       </div>
