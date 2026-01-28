@@ -1,0 +1,7 @@
+{
+  "name": "FMA Madagascar - Portail Officiel",
+  "description": "Site web officiel et plateforme de gestion pour Les Filles de Marie Auxiliatrice de Madagascar. Inclut une vitrine institutionnelle et un tableau de bord CMS intelligent.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
